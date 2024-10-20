@@ -1,6 +1,7 @@
 "use client";
+
 import { cn } from "@/utils/cn";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import { createNoise3D } from "simplex-noise";
 
 export const WavyBackground = ({
@@ -27,15 +28,10 @@ export const WavyBackground = ({
   [key: string]: any;
 }) => {
   const noise = createNoise3D();
-  let w: number,
-    h: number,
-    nt: number,
-    i: number,
-    x: number,
-    ctx: any,
-    canvas: any;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const getSpeed = () => {
+  const animationIdRef = useRef<number>();
+
+  const getSpeed = useCallback(() => {
     switch (speed) {
       case "slow":
         return 0.001;
@@ -44,73 +40,65 @@ export const WavyBackground = ({
       default:
         return 0.001;
     }
-  };
+  }, [speed]);
 
-  const init = () => {
-    canvas = canvasRef.current;
-    ctx = canvas.getContext("2d");
-    w = ctx.canvas.width = window.innerWidth;
-    h = ctx.canvas.height = window.innerHeight;
-    ctx.filter = `blur(${blur}px)`;
-    nt = 0;
-    window.onresize = function () {
-      w = ctx.canvas.width = window.innerWidth;
-      h = ctx.canvas.height = window.innerHeight;
-      ctx.filter = `blur(${blur}px)`;
-    };
-    render();
-  };
-
-  const waveColors = colors ?? [
-    "#38bdf8",
-    "#818cf8",
-    "#c084fc",
-    "#e879f9",
-    "#22d3ee",
-  ];
-  const drawWave = (n: number) => {
-    nt += getSpeed();
-    for (i = 0; i < n; i++) {
+  const drawWave = useCallback((ctx: CanvasRenderingContext2D, n: number, w: number, h: number, nt: number) => {
+    const waveColors = colors ?? ["#38bdf8", "#818cf8", "#c084fc", "#e879f9", "#22d3ee"];
+    for (let i = 0; i < n; i++) {
       ctx.beginPath();
       ctx.lineWidth = waveWidth || 50;
       ctx.strokeStyle = waveColors[i % waveColors.length];
-      for (x = 0; x < w; x += 5) {
-        var y = noise(x / 800, 0.3 * i, nt) * 100;
-        ctx.lineTo(x, y + h * 0.5); // adjust for height, currently at 50% of the container
+      for (let x = 0; x < w; x += 5) {
+        const y = noise(x / 800, 0.3 * i, nt) * 100;
+        ctx.lineTo(x, y + h * 0.5);
       }
       ctx.stroke();
       ctx.closePath();
     }
-  };
+  }, [colors, noise, waveWidth]);
 
-  let animationId: number;
-  const render = () => {
-    ctx.fillStyle = backgroundFill || "black";
-    ctx.globalAlpha = waveOpacity || 0.5;
-    ctx.fillRect(0, 0, w, h);
-    drawWave(5);
-    animationId = requestAnimationFrame(render);
-  };
+  const init = useCallback(() => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const resizeCanvas = () => {
+      const w = ctx.canvas.width = window.innerWidth;
+      const h = ctx.canvas.height = window.innerHeight;
+      ctx.filter = `blur(${blur}px)`;
+      return { w, h };
+    };
+
+    let nt = 0;
+    const { w, h } = resizeCanvas();
+    
+    window.onresize = resizeCanvas;
+
+    const render = () => {
+      ctx.fillStyle = backgroundFill || "black";
+      ctx.globalAlpha = waveOpacity || 0.5;
+      ctx.fillRect(0, 0, w, h);
+      nt += getSpeed();
+      drawWave(ctx, 5, w, h, nt);
+      animationIdRef.current = requestAnimationFrame(render);
+    };
+
+    render();
+  }, [blur, backgroundFill, waveOpacity, getSpeed, drawWave]);
 
   useEffect(() => {
     init();
     return () => {
-      cancelAnimationFrame(animationId);
+      if (animationIdRef.current) {
+        cancelAnimationFrame(animationIdRef.current);
+      }
     };
-  }, []);
+  }, [init]);
 
   return (
-    <div
-      className={cn(
-        "h-screen flex flex-col items-center justify-center",
-        containerClassName
-      )}
-    >
-      <canvas
-        className="absolute inset-0 z-0"
-        ref={canvasRef}
-        id="canvas"
-      ></canvas>
+    <div className={cn("h-screen flex flex-col items-center justify-center", containerClassName)}>
+      <canvas className="absolute inset-0 z-0" ref={canvasRef} id="canvas"></canvas>
       <div className={cn("relative z-10", className)} {...props}>
         {children}
       </div>
